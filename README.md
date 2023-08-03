@@ -1,0 +1,2 @@
+# STM32_TMC5160_StepperMotor_Driver_Standalone
+Standalone example fro TMC5160
