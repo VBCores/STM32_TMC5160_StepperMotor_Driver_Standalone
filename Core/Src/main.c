@@ -50,7 +50,10 @@
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
-
+void AngularSpeedToTimerPWMParametrs(uint16_t w); //w - angular speed = 0.01 radian per second 1
+/*
+ * Limits for w  (10<w<100)
+ */
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -88,22 +91,63 @@ int main(void)
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   MX_TIM1_Init();
-
   /* USER CODE BEGIN 2 */
   //Config via pins see p.116 of TMC5160 datasheet
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_5, 1); //DRV SLEEP 0 for power on, 1 for power off
 
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_SET); //SD_MODE
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, GPIO_PIN_RESET); //SPI_MODE
-  HAL_Delay(100);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_SET); //SD_MODE ON
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, GPIO_PIN_RESET); //SPI_MODE OFF
+  HAL_Delay(100); //Sanity delay
 
-  HAL_GPIO_WritePin(CFG0_GPIO_Port, CFG0_Pin, GPIO_PIN_RESET); //CFG0
-  HAL_GPIO_WritePin(CFG1_GPIO_Port, CFG1_Pin, GPIO_PIN_RESET); //CFG1
+  //64 microsteps, MRES=5
+  HAL_GPIO_WritePin(CFG0_GPIO_Port, CFG0_Pin, GPIO_PIN_SET); //CFG0
+  HAL_GPIO_WritePin(CFG1_GPIO_Port, CFG1_Pin, GPIO_PIN_SET); //CFG1
+  /*
+  CFG1   CFG0    Microstep Setting
+  GND    GND     8 microsteps, MRES=5
+  GND    VCC_IO  16 microsteps, MRES=4
+  VCC_IO GND     32 microsteps, MRES=3
+  VCC_IO VCC_IO  64 microsteps, MRES=2
+  */
+
+  //IRUN=16
   HAL_GPIO_WritePin(CFG2_GPIO_Port, CFG2_Pin, GPIO_PIN_RESET); //CFG2
   HAL_GPIO_WritePin(CFG3_GPIO_Port, CFG3_Pin, GPIO_PIN_RESET); //CFG3
   HAL_GPIO_WritePin(CFG4_GPIO_Port, CFG4_Pin, GPIO_PIN_RESET); //CFG4
-  HAL_GPIO_WritePin(CFG5_GPIO_Port, CFG5_Pin, GPIO_PIN_SET); //CFG5
+  /*
+   CFG4/CFG3/CFG2: CONFIGURATION OF RUN CURRENT
+	CFG4   CFG3     CFG2   IRUN Setting
+	GND     GND     GND    IRUN=16
+	GND     GND     VCC_IO IRUN=18
+	GND     VCC_IO  GND    IRUN=20
+	GND     VCC_IO  VCC_IO IRUN=22
+	VCC_IO  GND     GND    IRUN=24
+	VCC_IO  GND     VCC_IO IRUN=26
+	VCC_IO  VCC_IO  GND    IRUN=28
+	VCC_IO  VCC_IO  VCC_IO IRUN=31
+   */
+
+  //StealthChop operation
+  HAL_GPIO_WritePin(CFG5_GPIO_Port, CFG5_Pin, GPIO_PIN_RESET); //CFG5
+  /*
+   CFG5: SELECTION OF CHOPPER MODE
+   CFG5 Chopper Setting
+   GND SpreadCycle operation. (TOFF=3)
+   VCC_IO StealthChop operation. (GCONF.en_PWM_mode=1)
+   */
+
+
+  //IHOLD Reduction to 50%. IHOLD=1/2 IRUN
   HAL_GPIO_WritePin(CFG6_GPIO_Port, CFG6_Pin, GPIO_PIN_SET); //CFG6
+  /*
+  CFG6: CONFIGURATION OF HOLD CURRENT REDUCTION
+	CFG6 	Chopper Setting
+	GND 	No hold current reduction. IHOLD=IRUN
+	VCC_IO 	Reduction to 50%. IHOLD=1/2 IRUN
+  */
+
+
+
   HAL_Delay(1000); //sanity delay
 
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, 0); //DIR
@@ -118,16 +162,14 @@ int main(void)
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
 
   //setting the speed of rotation
-  uint8_t speed = 1; // (sec / rad)
+  uint8_t speed = 100; //  * 0.01 rad / sec
   //timer settings
-  TIM1->PSC = 159;
-  TIM1->ARR = 80 / speed; //should be integer!!!
-  TIM1->CCR1 = TIM1->ARR / 2;
+  AngularSpeedToTimerPWMParametrs(speed);
 
   while (1)
   {
 	  uint8_t str[50];
-	  sprintf(str,"Rotating 1 rad. per %d seconds \r\n\0", speed);
+	  sprintf(str,"Rotating %d * 0.01 rad / sec \r\n\0", speed);
 	  HAL_UART_Transmit_IT(&huart2, str, sizeof(str));
 	  HAL_Delay(100);
     /* USER CODE END WHILE */
@@ -183,6 +225,16 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+void AngularSpeedToTimerPWMParametrs(uint16_t w)
+{
+
+int step_duration = 0;
+step_duration = (int)((100 / w) * 100); //100 total duration of UP + DOWN of STEP
+TIM1->PSC = 15;
+TIM1->ARR = step_duration;
+TIM1->CCR1 = 40; // 40 is min duration of UP of STEP
+}
+
 
 /* USER CODE END 4 */
 
